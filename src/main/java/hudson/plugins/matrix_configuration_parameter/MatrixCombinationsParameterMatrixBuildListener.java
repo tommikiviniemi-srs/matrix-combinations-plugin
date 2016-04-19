@@ -28,6 +28,7 @@ import hudson.Extension;
 import hudson.Util;
 import hudson.matrix.MatrixConfiguration;
 import hudson.matrix.MatrixBuild;
+import hudson.matrix.MatrixProject;
 import hudson.matrix.listeners.MatrixBuildListener;
 import hudson.model.ParametersAction;
 
@@ -52,6 +53,12 @@ public class MatrixCombinationsParameterMatrixBuildListener extends MatrixBuildL
         if (paction == null) {
             return true;
         }
+
+        // if opted in, the plugin works merely as a gui and still needs a combination filter (good for scripting the config)
+        boolean noFiltering = true; // TODO: make assignable from GUI instead!
+        if (noFiltering)
+            return true;
+
         for (MatrixCombinationsParameterValue value
                 :Util.filter(paction.getParameters(), MatrixCombinationsParameterValue.class)) {
             if (!value.combinationExists(b.getParent().getAxes(), c.getCombination())) {
