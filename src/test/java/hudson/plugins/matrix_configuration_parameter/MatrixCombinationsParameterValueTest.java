@@ -24,10 +24,14 @@
 
 package hudson.plugins.matrix_configuration_parameter;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import java.util.Arrays;
+import java.util.Collections;
 
+import hudson.markup.RawHtmlMarkupFormatter;
 import hudson.matrix.AxisList;
 import hudson.matrix.MatrixBuild;
 import hudson.matrix.MatrixProject;
@@ -37,14 +41,15 @@ import hudson.model.FreeStyleBuild;
 import hudson.model.FreeStyleProject;
 import hudson.model.ParametersAction;
 import hudson.model.ParametersDefinitionProperty;
+import jenkins.model.Jenkins;
 
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.Bug;
-import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule.WebClient;
 
-import com.gargoylesoftware.htmlunit.html.HtmlCheckBoxInput;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
 
 /**
@@ -52,7 +57,7 @@ import com.gargoylesoftware.htmlunit.html.HtmlPage;
  */
 public class MatrixCombinationsParameterValueTest {
     @Rule
-    public JenkinsRule j = new JenkinsRule();
+    public MatrixCombinationsJenkinsRule j = new MatrixCombinationsJenkinsRule();
     
     @Test
     public void testParametersPageWithSingleAxis() throws Exception{
@@ -70,9 +75,9 @@ public class MatrixCombinationsParameterValueTest {
         WebClient wc = j.createWebClient();
         HtmlPage page = wc.getPage(b, "parameters");
         
-        assertTrue(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value1")).isChecked());
-        assertFalse(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value2")).isChecked());
-        assertTrue(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value3")).isChecked());
+        j.assertCombinationChecked(page, true, axes, "value1");
+        j.assertCombinationChecked(page, false, axes, "value2");
+        j.assertCombinationChecked(page, true, axes, "value3");
     }
     
     @Test
@@ -95,10 +100,10 @@ public class MatrixCombinationsParameterValueTest {
         WebClient wc = j.createWebClient();
         HtmlPage page = wc.getPage(b, "parameters");
         
-        assertTrue(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value1-1-axis2-value2-1")).isChecked());
-        assertFalse(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value1-1-axis2-value2-2")).isChecked());
-        assertTrue(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value1-2-axis2-value2-1")).isChecked());
-        assertTrue(((HtmlCheckBoxInput)page.getElementById("checkboxcombinations-axis1-value1-2-axis2-value2-2")).isChecked());
+        j.assertCombinationChecked(page, true, axes, "value1-1", "value2-1");
+        j.assertCombinationChecked(page, false, axes, "value1-1", "value2-2");
+        j.assertCombinationChecked(page, true, axes, "value1-2", "value2-1");
+        j.assertCombinationChecked(page, true, axes, "value1-2", "value2-2");
     }
     
     @Bug(27233)
@@ -118,5 +123,106 @@ public class MatrixCombinationsParameterValueTest {
         
         WebClient wc = j.createWebClient();
         wc.getPage(b, "parameters");
+    }
+
+    @Test
+    public void testReadResolve() throws Exception {
+        final String SERIALIZED = 
+            "<hudson.plugins.matrix__configuration__parameter.MatrixCombinationsParameterValue>"
+                + "<name>combinations</name>"
+                + "<description>test</description>"
+                + "<values>"
+                    + "<boolean>true</boolean>"
+                    + "<boolean>false</boolean>"
+                    + "<boolean>true</boolean>"
+                + "</values>"
+                + "<confs>"
+                    + "<string>axis1=value1</string>"
+                    + "<string>axis1=value2</string>"
+                    + "<string>axis1=value3</string>"
+                + "</confs>"
+            + "</hudson.plugins.matrix__configuration__parameter.MatrixCombinationsParameterValue>";
+        MatrixCombinationsParameterValue v = (MatrixCombinationsParameterValue)Jenkins.XSTREAM2.fromXML(SERIALIZED);
+        assertEquals("combinations", v.getName());
+        assertEquals("test", v.getDescription());
+        assertNull(v.getValues());
+        assertNull(v.getConfs());
+        assertEquals(
+            Arrays.asList(
+                "axis1=value1",
+                "axis1=value3"
+            ),
+            v.getCombinations()
+        );
+    }
+
+    @Test
+    public void testReadResolveOfDefaultMatrixCombinationsParameterValue() throws Exception {
+        final String SERIALIZED = 
+            "<hudson.plugins.matrix__configuration__parameter.DefaultMatrixCombinationsParameterValue>"
+                + "<name>combinations</name>"
+                + "<description>test</description>"
+                + "<combinationFilter>axis1 != &apos;value2&apos;</combinationFilter>"
+            + "</hudson.plugins.matrix__configuration__parameter.DefaultMatrixCombinationsParameterValue>";
+        DefaultMatrixCombinationsParameterValue v = (DefaultMatrixCombinationsParameterValue)Jenkins.XSTREAM2.fromXML(SERIALIZED);
+        assertEquals("combinations", v.getName());
+        assertEquals("test", v.getDescription());
+        assertNull(v.getValues());
+        assertNull(v.getConfs());
+        assertEquals(
+            Collections.emptyList(),
+            v.getCombinations()
+        );
+        assertEquals(
+            "axis1 != 'value2'",
+            v.getCombinationFilter()
+        );
+    }
+
+    @Issue("JENKINS-42902")
+    @Test
+    public void testSafeTitle() throws Exception {
+        j.jenkins.setMarkupFormatter(new RawHtmlMarkupFormatter(true));
+        AxisList axes = new AxisList(new TextAxis("axis1", "value1", "value2", "value3"));
+        MatrixProject p = j.createMatrixProject();
+        p.setAxes(axes);
+        p.addProperty(new ParametersDefinitionProperty(
+                new MatrixCombinationsParameterDefinition(
+                    "<span id=\"test-not-expected\">combinations</span>",
+                    ""
+                )
+        ));
+
+        MatrixBuild b = j.assertBuildStatusSuccess(p.scheduleBuild2(0).get());
+
+        WebClient wc = j.createWebClient();
+        HtmlPage page = wc.getPage(b, "parameters");
+
+        assertNull(page.getElementById("test-not-expected"));
+    }
+
+    @Issue("JENKINS-42902")
+    @Test
+    public void testSafeDescription() throws Exception {
+        j.jenkins.setMarkupFormatter(new RawHtmlMarkupFormatter(true));
+
+        AxisList axes = new AxisList(new TextAxis("axis1", "value1", "value2", "value3"));
+        MatrixProject p = j.createMatrixProject();
+        p.setAxes(axes);
+        p.addProperty(new ParametersDefinitionProperty(
+                new MatrixCombinationsParameterDefinition(
+                    "combinations",
+                    "<span id=\"test-expected\">blahblah</span>"
+                        + "<script id=\"test-not-expected\"></script>"
+                )
+        ));
+
+        MatrixBuild b = j.assertBuildStatusSuccess(p.scheduleBuild2(0).get());
+
+        WebClient wc = j.createWebClient();
+        HtmlPage page = wc.getPage(b, "parameters");
+
+        assertNotNull(page.getElementById("test-expected"));
+        assertNull(page.getElementById("test-not-expected"));
     }
 }

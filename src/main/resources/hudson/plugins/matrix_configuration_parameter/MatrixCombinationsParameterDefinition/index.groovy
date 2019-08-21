@@ -1,6 +1,11 @@
 package hudson.plugins.matrix_configuration_parameter.matrixcombinationparameterDefinition
 
-import hudson.matrix.*
+import hudson.matrix.AxisList
+import hudson.matrix.Combination
+import hudson.matrix.Layouter
+import hudson.matrix.MatrixProject
+import hudson.matrix.MatrixBuild
+import hudson.matrix.MatrixRun
 import hudson.model.Result
 import hudson.plugins.matrix_configuration_parameter.MatrixCombinationsParameterDefinition
 import lib.LayoutTagLib
@@ -18,7 +23,8 @@ String nameIt = it.getName();
 MatrixProject project = request.findAncestorObject(MatrixProject.class);
 if (project == null) {
    //in case project is not a Matrix Project
-    f.entry(title: nameIt, description: it.getDescription()) {
+    set("escapeEntryTitleAndDescription", false);
+    f.entry(title: h.escape(nameIt), description: it.formattedDescription) {
         div(name: "parameter") {
             input(type: "hidden", name: "name", value: nameIt)
             text(_("Not applicable. Applicable only to multi-configuration projects."))
@@ -38,66 +44,19 @@ Layouter layouter = new Layouter<Combination>(axes) {
 
 
 
-drawMainBody(paramDef, f, nameIt, axes, project, layouter)
+drawMainBody(paramDef, f, nameIt, axes, project, project.lastBuild, layouter)
 
-private void drawMainBody(MatrixCombinationsParameterDefinition paramDef, Namespace f, String nameIt, AxisList axes,MatrixProject project,Layouter layouter) {
-
-    drawMainLinksJS(nameIt)
-
-
-    f.entry(title: nameIt, description: it.getDescription()) {
-        div(name: "parameter") {
+private void drawMainBody(MatrixCombinationsParameterDefinition paramDef, Namespace f, String nameIt, AxisList axes,MatrixProject project,MatrixBuild build,Layouter layouter) {
+    set("escapeEntryTitleAndDescription", false);
+    f.entry(title: h.escape(nameIt), description: it.formattedDescription) {
+        div(name: "parameter", class: "matrix-combinations-parameter") {
             input(type: "hidden", name: "name", value: nameIt)
             nsProject.matrix(it: project, layouter: layouter) {
               drawMainBall(paramDef, p, project.axes, nameIt, project, layouter);
             }
-            raw("<span style=\"font-weight:bold\">Select: </span> \n" +
-                "<a id=\"shortcut-" + nameIt + "-successful\" href=\"#\" onclick=\"click2Change(0);\">Successful</a> - \n" +
-                "<a id=\"shortcut-" + nameIt + "-failed\"     href=\"#\" onclick=\"click2Change(2);\">Failed</a> - \n" +
-                "<a id=\"shortcut-" + nameIt + "-all\"        href=\"#\" onclick=\"click2Change(1000);\">All</a> - \n" +
-                "<a id=\"shortcut-" + nameIt + "-none\"       href=\"#\" onclick=\"click2Change(-1);\">None</a>")
-
+            nsProject.shortcut(parameter: paramDef, project: project, build: build);
         }//div
     }
-}
-
-private void drawMainLinksJS(String nameIt) {
-    raw("<script>\n" +
-            "function click2Change( status )\n" +
-            "{\n" +
-            "var i;\n" +
-            "for( i = 0, len = document.parameters.elements.length ; i < len ; i++ )\n" +
-            "{\n" +
-            "var element = document.parameters.elements[i];\n" +
-            "if( element.type == 'checkbox' && element.id.lastIndexOf(\"checkbox" + nameIt + "-\", 0) == 0 )\n" +
-            "{\n" +
-            "if( (document.parameters.elements[i+1].getAttribute('data-status') == status) || status > 999 )\n" +
-
-            "{\n" +
-            "element.checked = true;\n" +
-            "}\n" +
-            "else\n" +
-            "{\n" +
-            "element.checked = false;\n" +
-            "}\n" +
-            "}\n" +
-            "}\n" +
-            "return false;\n" +
-            "}\n" +
-            "</script>\n")
-}
-
-private int encodeRunResult(MatrixRun run) {
-    if (run.getResult() == null) {
-        return 0
-    };
-    if (Result.SUCCESS.isWorseOrEqualTo(run.getResult())) {
-        return 0
-    };
-    if (Result.UNSTABLE.isWorseOrEqualTo(run.getResult())) {
-        return 1
-    };
-    return 2;
 }
 
 private void drawMainBall(MatrixCombinationsParameterDefinition paramDef, Combination combination,AxisList axes,String matrixName,MatrixProject project,Layouter layouter) {
@@ -113,9 +72,9 @@ private void drawMainBall(MatrixCombinationsParameterDefinition paramDef, Combin
             }
             }
             checked = combination.evalGroovyExpression(axes, paramDef.defaultCombinationFilter?:project.combinationFilter)
-            f.checkbox(checked: checked, name: "values",id: String.format("checkbox%s-%s", matrixName, combination.toString('-' as char, '-' as char)))
-            input(type: "hidden", name: "confs", value: combination.toString(),'data-status':encodeRunResult(lastRun))
-
+            span(class: "combination", "data-combination": combination.toIndex(axes)) {
+                f.checkbox(checked: checked, name: "combinations", json: combination.toString())
+            }
         }
 
     } else{
@@ -125,8 +84,9 @@ private void drawMainBall(MatrixCombinationsParameterDefinition paramDef, Combin
         }
         
         checked = combination.evalGroovyExpression(axes, paramDef.defaultCombinationFilter?:project.combinationFilter)
-        f.checkbox(checked: checked, name: "values",id: String.format("checkbox%s-%s", matrixName, combination.toString('-' as char, '-' as char)))
-        input(type: "hidden", name: "confs", value: combination.toString(), 'data-status': combination.toIndex((AxisList) axes) != -1 ? 0 : -1)
+        span(class: "combination", "data-combination": combination.toIndex(axes)) {
+            f.checkbox(checked: checked, name: "combinations", json: combination.toString())
+        }
     }
 
 }

@@ -20,7 +20,8 @@ MatrixProject project = request.findAncestorObject(MatrixProject.class);
 MatrixBuild build = request.findAncestorObject(MatrixBuild.class);
 if (project == null || build == null) {
     //in case you are looking at a specific run, MatrixRun Ancestor will replace the MatrixBuild
-    f.entry(title: valueIt.getName(), description: it.getDescription()) {
+    set("escapeEntryTitleAndDescription", false);
+    f.entry(title: h.escape(valueIt.name), description: it.formattedDescription) {
         div(name: "parameter") {
             input(type: "hidden", name: "name", value: valueIt.getName())
             text(_("Not applicable. Applicable only to multi-configuration projects."))
@@ -40,8 +41,9 @@ drawParameterBody(f, valueIt, axes, project, build, layouter);
 
 
 private void drawParameterBody(Namespace f,MatrixCombinationsParameterValue valueIt,AxisList axes,MatrixProject project,MatrixBuild build,Layouter layouter) {
-    f.entry(title: valueIt.getName(), description: it.getDescription()) {
-        div(name: "parameter") {
+    set("escapeEntryTitleAndDescription", false);
+    f.entry(title: h.escape(valueIt.name), description: it.formattedDescription) {
+        div(name: "parameter", class: "matrix-combinations-parameter") {
             input(type: "hidden", name: "name", value: valueIt.getName())
             nsProject.matrix(it: build, layouter: layouter) {
               drawTableBall(p, project.axes, valueIt, project, build, layouter);
@@ -60,8 +62,9 @@ private void drawTableBall(Combination combination,AxisList axes,MatrixCombinati
             if (!layouter.x || !layouter.y) {
                 text(combination.toString(layouter.z))
               }
-            f.checkbox(checked: "true",onclick:"return false;", onkeydown:"return false;", name: "values",id: String.format("checkbox%s-%s", matrixValue.getName(), combination.toString('-' as char, '-' as char)));
-            input(type: "hidden", name: "confs", value: combination.toString());
+            span(class: "combination", "data-combination": combination.toIndex(axes)) {
+                f.checkbox(checked: true, name: "combinations", readonly: true, json: combination.toString());
+            }
         }
 
     } else {
@@ -69,7 +72,8 @@ private void drawTableBall(Combination combination,AxisList axes,MatrixCombinati
         if (!layouter.x || !layouter.y) {
             text(combination.toString(layouter.z))
           }
-        f.checkbox(checked: "false",onclick:"return false;", onkeydown:"return false;", name: "values",id: String.format("checkbox%s-%s", matrixValue.getName(), combination.toString('-' as char, '-' as char)));
-        input(type: "hidden", name: "confs", value: combination.toString());
+        span(class: "combination", "data-combination": combination.toIndex(axes)) {
+            f.checkbox(checked: false, name: "combinations", readonly: true, json: combination.toString());
+        }
     }
 }

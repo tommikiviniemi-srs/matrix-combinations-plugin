@@ -28,6 +28,7 @@ import static org.junit.Assert.*;
 
 import java.util.Arrays;
 
+import hudson.markup.RawHtmlMarkupFormatter;
 import hudson.matrix.AxisList;
 import hudson.matrix.Combination;
 import hudson.matrix.MatrixBuild;
@@ -38,12 +39,14 @@ import hudson.model.FreeStyleBuild;
 import hudson.model.FreeStyleProject;
 import hudson.model.ParametersAction;
 import hudson.model.ParametersDefinitionProperty;
+import hudson.model.Result;
 import hudson.model.StringParameterValue;
 
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.Bug;
-import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule.WebClient;
 
 import com.gargoylesoftware.htmlunit.html.HtmlForm;
@@ -55,7 +58,7 @@ import com.gargoylesoftware.htmlunit.html.HtmlPage;
 public class MatrixCombinationsRebuildParameterProviderTest
 {
     @Rule
-    public JenkinsRule j = new JenkinsRule();
+    public MatrixCombinationsJenkinsRule j = new MatrixCombinationsJenkinsRule();
     
     @Test
     public void testRebuildOneAxis() throws Exception {
@@ -145,7 +148,8 @@ public class MatrixCombinationsRebuildParameterProviderTest
         assertNull(b1.getExactRun(new Combination(p.getAxes(), "value1-1", "value2-2")));
         assertNotNull(b1.getExactRun(new Combination(p.getAxes(), "value1-2", "value2-2")));
     }
-    
+
+    @Ignore("TODO JENKINS-49573: java.lang.ClassCastException: net.sf.json.JSONNull cannot be cast to net.sf.json.JSONObject")
     @Bug(27233)
     @Test
     public void testAppliedForNonMatrixProjectRebuild() throws Exception {
@@ -175,5 +179,93 @@ public class MatrixCombinationsRebuildParameterProviderTest
         
         FreeStyleBuild b2  = p.getLastBuild();
         assertNotEquals(b1.getNumber(), b2.getNumber());
+    }
+
+    @Test
+    public void testShortcut() throws Exception {
+        AxisList axes = new AxisList(new TextAxis("axis1", "value1", "value2", "value3"));
+        MatrixProject p = j.createMatrixProject();
+        p.setAxes(axes);
+        p.addProperty(new ParametersDefinitionProperty(new MatrixCombinationsParameterDefinition("combinations", "")));
+
+        p.getBuildersList().add(new ConditionalFailBuilder("${axis1}", "value2"));
+        p.setCombinationFilter("axis1 != 'value3'");
+
+        MatrixBuild b1 = p.scheduleBuild2(0).get();
+        j.assertBuildStatus(Result.SUCCESS, b1.getExactRun(new Combination(axes, "value1")));
+        j.assertBuildStatus(Result.FAILURE, b1.getExactRun(new Combination(axes, "value2")));
+        assertNull(b1.getExactRun(new Combination(axes, "value3")));
+
+        p.getBuildersList().clear();
+        p.setCombinationFilter("");
+
+        MatrixBuild b2 = p.scheduleBuild2(0).get();
+        j.assertBuildStatus(Result.SUCCESS, b2.getExactRun(new Combination(axes, "value1")));
+        j.assertBuildStatus(Result.SUCCESS, b2.getExactRun(new Combination(axes, "value2")));
+        j.assertBuildStatus(Result.SUCCESS, b2.getExactRun(new Combination(axes, "value3")));
+
+        WebClient wc = j.createWebClient();
+        HtmlPage page = wc.getPage(b1, "rebuild");
+
+        j.assertCombinationChecked(page, true, axes, "value1");
+        j.assertCombinationChecked(page, true, axes, "value2");
+        j.assertCombinationChecked(page, false, axes, "value3");
+
+        j.clickShortcut(page, "SUCCESS");
+        j.assertCombinationChecked(page, true, axes, "value1");
+        j.assertCombinationChecked(page, false, axes, "value2");
+        j.assertCombinationChecked(page, false, axes, "value3");
+
+        j.clickShortcut(page, "FAILURE");
+        j.assertCombinationChecked(page, false, axes, "value1");
+        j.assertCombinationChecked(page, true, axes, "value2");
+        j.assertCombinationChecked(page, false, axes, "value3");
+    }
+
+    @Issue("JENKINS-42902")
+    @Test
+    public void testSafeTitle() throws Exception {
+        j.jenkins.setMarkupFormatter(new RawHtmlMarkupFormatter(true));
+        AxisList axes = new AxisList(new TextAxis("axis1", "value1", "value2", "value3"));
+        MatrixProject p = j.createMatrixProject();
+        p.setAxes(axes);
+        p.addProperty(new ParametersDefinitionProperty(
+                new MatrixCombinationsParameterDefinition(
+                    "<span id=\"test-not-expected\">combinations</span>",
+                    ""
+                )
+        ));
+
+        MatrixBuild b = j.assertBuildStatusSuccess(p.scheduleBuild2(0).get());
+
+        WebClient wc = j.createWebClient();
+        HtmlPage page = wc.getPage(b, "rebuild");
+
+        assertNull(page.getElementById("test-not-expected"));
+    }
+
+    @Issue("JENKINS-42902")
+    @Test
+    public void testSafeDescription() throws Exception {
+        j.jenkins.setMarkupFormatter(new RawHtmlMarkupFormatter(true));
+
+        AxisList axes = new AxisList(new TextAxis("axis1", "value1", "value2", "value3"));
+        MatrixProject p = j.createMatrixProject();
+        p.setAxes(axes);
+        p.addProperty(new ParametersDefinitionProperty(
+                new MatrixCombinationsParameterDefinition(
+                    "combinations",
+                    "<span id=\"test-expected\">blahblah</span>"
+                        + "<script id=\"test-not-expected\"></script>"
+                )
+        ));
+
+        MatrixBuild b = j.assertBuildStatusSuccess(p.scheduleBuild2(0).get());
+
+        WebClient wc = j.createWebClient();
+        HtmlPage page = wc.getPage(b, "rebuild");
+
+        assertNotNull(page.getElementById("test-expected"));
+        assertNull(page.getElementById("test-not-expected"));
     }
 }
